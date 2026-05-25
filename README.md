@@ -1,588 +1,466 @@
--- ╔══════════════════════════════════════════╗
--- ║           QuincyHub Script               ║
--- ║         Compatible: Delta Mobile         ║
--- ╚══════════════════════════════════════════╝
+-- ╔══════════════════════════════════════════════════════╗
+-- ║                  Q U I N C Y H U B                  ║
+-- ║              Delta Mobile Compatible                 ║
+-- ╚══════════════════════════════════════════════════════╝
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+-- SERVIÇOS
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+local TweenService     = game:GetService("TweenService")
 
+-- PLAYER
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
-local Humanoid = Character:WaitForChild("Humanoid")
+local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
--- ══════════════════════════════════════
---  STATE
--- ══════════════════════════════════════
-local isFlying = false
-local flyConnection = nil
-local flySpeed = 50
-local uiVisible = true
+-- ESTADO
+local isFlying    = false
+local flyConn     = nil
+local flySpeed    = 55
+local uiVisible   = false  -- UI começa OCULTA, só aparece ao clicar no botão logo
 
--- ══════════════════════════════════════
---  LOGO SVG (inline as ImageLabel via DrawingLib fallback)
---  We embed the logo as a base64 encoded decal or use
---  a custom render. For Delta compatibility we use
---  a pure Roblox GUI approach with vector-like shapes.
--- ══════════════════════════════════════
+-- ══════════════════════════════════════════════════════
+--  HELPER: desenha a logo (8 pétalas côncavas douradas
+--  sobre fundo azul escuro, idêntica à imagem enviada)
+-- ══════════════════════════════════════════════════════
+local function BuildLogo(parent, size)
+    -- Container circular dourado
+    local circle = Instance.new("Frame")
+    circle.Size           = UDim2.new(0, size, 0, size)
+    circle.Position       = UDim2.new(0.5, -size/2, 0.5, -size/2)
+    circle.BackgroundColor3 = Color3.fromRGB(210, 165, 40)
+    circle.BorderSizePixel  = 0
+    circle.ZIndex           = parent.ZIndex + 1
+    circle.Parent           = parent
+    Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
 
--- ══════════════════════════════════════
+    -- 8 pétalas (recortes escuros que criam o efeito côncavo dourado)
+    local petalW = math.floor(size * 0.38)
+    local petalH = math.floor(size * 0.52)
+    for i = 0, 7 do
+        local petal = Instance.new("Frame")
+        petal.Size              = UDim2.new(0, petalW, 0, petalH)
+        petal.Position          = UDim2.new(0.5, -petalW/2, 0.5, -(petalH * 0.88))
+        petal.BackgroundColor3  = Color3.fromRGB(8, 12, 30)
+        petal.BorderSizePixel   = 0
+        petal.Rotation          = i * 45
+        petal.ZIndex            = circle.ZIndex + 1
+        petal.Parent            = circle
+        Instance.new("UICorner", petal).CornerRadius = UDim.new(0.5, 0)
+    end
+
+    return circle
+end
+
+-- ══════════════════════════════════════════════════════
 --  SCREEN GUI
--- ══════════════════════════════════════
+-- ══════════════════════════════════════════════════════
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "QuincyHub"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = PlayerGui
+ScreenGui.Name            = "QuincyHub"
+ScreenGui.ResetOnSpawn    = false
+ScreenGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset  = true
+ScreenGui.Parent          = PlayerGui
 
--- ══════════════════════════════════════
---  FLOATING LOGO BUTTON (always visible, draggable)
--- ══════════════════════════════════════
-local LogoButton = Instance.new("ImageButton")
-LogoButton.Name = "LogoToggle"
-LogoButton.Size = UDim2.new(0, 64, 0, 64)
-LogoButton.Position = UDim2.new(0, 20, 0.5, -32)
-LogoButton.BackgroundColor3 = Color3.fromRGB(10, 15, 35)
-LogoButton.BorderSizePixel = 0
-LogoButton.Image = "" -- will be drawn with children
-LogoButton.ZIndex = 100
-LogoButton.Parent = ScreenGui
+-- ══════════════════════════════════════════════════════
+--  BOTÃO LOGO FLUTUANTE (sempre visível, arrastável)
+-- ══════════════════════════════════════════════════════
+local LogoBtn = Instance.new("TextButton")
+LogoBtn.Name              = "LogoBtn"
+LogoBtn.Size              = UDim2.new(0, 68, 0, 68)
+LogoBtn.Position          = UDim2.new(0, 16, 0.5, -34)
+LogoBtn.BackgroundColor3  = Color3.fromRGB(8, 12, 30)
+LogoBtn.BorderSizePixel   = 0
+LogoBtn.Text              = ""
+LogoBtn.ZIndex            = 200
+LogoBtn.ClipsDescendants  = true
+LogoBtn.Parent            = ScreenGui
 
-local LogoCorner = Instance.new("UICorner")
-LogoCorner.CornerRadius = UDim.new(1, 0)
-LogoCorner.Parent = LogoButton
+Instance.new("UICorner", LogoBtn).CornerRadius = UDim.new(1, 0)
 
-local LogoStroke = Instance.new("UIStroke")
-LogoStroke.Color = Color3.fromRGB(212, 170, 60)
-LogoStroke.Thickness = 2.5
-LogoStroke.Parent = LogoButton
+local logoBtnStroke = Instance.new("UIStroke", LogoBtn)
+logoBtnStroke.Color     = Color3.fromRGB(212, 170, 40)
+logoBtnStroke.Thickness = 2.5
 
--- Golden glow gradient inside logo button
-local LogoGrad = Instance.new("UIGradient")
-LogoGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 215, 80)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 130, 20)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(212, 170, 60)),
-})
-LogoGrad.Rotation = 135
-LogoGrad.Parent = LogoButton
+-- Logo dentro do botão (8 pétalas, tamanho 60)
+BuildLogo(LogoBtn, 60)
 
--- Logo symbol (simplified QuincyHub emblem using rotated frames)
-local function CreatePetal(parent, rotation, zindex)
-    local petal = Instance.new("Frame")
-    petal.Size = UDim2.new(0, 18, 0, 28)
-    petal.Position = UDim2.new(0.5, -9, 0.5, -24)
-    petal.BackgroundColor3 = Color3.fromRGB(10, 15, 35)
-    petal.BorderSizePixel = 0
-    petal.Rotation = rotation
-    petal.ZIndex = zindex or 101
-    petal.Parent = parent
+-- ══════════════════════════════════════════════════════
+--  ARRASTAR O BOTÃO LOGO  (funciona em mobile e PC)
+-- ══════════════════════════════════════════════════════
+do
+    local dragging   = false
+    local touchStart = nil   -- Vector2: posição inicial do toque/mouse
+    local btnStart   = nil   -- Vector2: posição inicial do botão em offset
+    local moved      = false -- detecta se foi arrastar ou clique
 
-    local pc = Instance.new("UICorner")
-    pc.CornerRadius = UDim.new(0.5, 0)
-    pc.Parent = petal
-    return petal
+    LogoBtn.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.Touch
+        or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging  = true
+            moved     = false
+            touchStart = Vector2.new(inp.Position.X, inp.Position.Y)
+            -- guarda a posição do botão em pixels absolutos
+            local abs = LogoBtn.AbsolutePosition
+            btnStart  = Vector2.new(abs.X, abs.Y)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(inp)
+        if not dragging then return end
+        if inp.UserInputType ~= Enum.UserInputType.Touch
+        and inp.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+
+        local cur    = Vector2.new(inp.Position.X, inp.Position.Y)
+        local delta  = cur - touchStart
+        if delta.Magnitude > 4 then moved = true end
+
+        local newX = btnStart.X + delta.X
+        local newY = btnStart.Y + delta.Y
+
+        -- Limita dentro da tela
+        local vp = workspace.CurrentCamera.ViewportSize
+        newX = math.clamp(newX, 0, vp.X - LogoBtn.AbsoluteSize.X)
+        newY = math.clamp(newY, 0, vp.Y - LogoBtn.AbsoluteSize.Y)
+
+        LogoBtn.Position = UDim2.new(0, newX, 0, newY)
+    end)
+
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.Touch
+        or inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+            -- Se não arrastou, considera clique → toggle UI
+            if not moved then
+                uiVisible = not uiVisible
+                MainFrame.Visible = uiVisible
+                if uiVisible then
+                    MainFrame.Size = UDim2.new(0, 0, 0, 0)
+                    TweenService:Create(MainFrame,
+                        TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+                        {Size = UDim2.new(0, 310, 0, 400)}
+                    ):Play()
+                end
+            end
+        end
+    end)
 end
 
-for i = 0, 7 do
-    CreatePetal(LogoButton, i * 45, 101)
-end
-
--- ══════════════════════════════════════
---  MAIN UI FRAME
--- ══════════════════════════════════════
+-- ══════════════════════════════════════════════════════
+--  MAIN FRAME  (começa invisível)
+-- ══════════════════════════════════════════════════════
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 320, 0, 420)
-MainFrame.Position = UDim2.new(0.5, -160, 0.5, -210)
-MainFrame.BackgroundColor3 = Color3.fromRGB(8, 12, 28)
-MainFrame.BorderSizePixel = 0
-MainFrame.ZIndex = 10
-MainFrame.Parent = ScreenGui
+MainFrame.Name             = "MainFrame"
+MainFrame.Size             = UDim2.new(0, 310, 0, 400)
+MainFrame.Position         = UDim2.new(0.5, -155, 0.5, -200)
+MainFrame.BackgroundColor3 = Color3.fromRGB(8, 12, 30)
+MainFrame.BorderSizePixel  = 0
+MainFrame.ZIndex           = 10
+MainFrame.Visible          = false   -- ← UI OCULTA AO INICIAR
+MainFrame.Parent           = ScreenGui
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 18)
-MainCorner.Parent = MainFrame
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 16)
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(212, 170, 60)
-MainStroke.Thickness = 2
-MainStroke.Parent = MainFrame
+local frameStroke = Instance.new("UIStroke", MainFrame)
+frameStroke.Color     = Color3.fromRGB(212, 170, 40)
+frameStroke.Thickness = 2
 
--- Background gradient
-local BgGrad = Instance.new("UIGradient")
-BgGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 18, 42)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 8, 20)),
+-- Gradiente de fundo
+local bgGrad = Instance.new("UIGradient", MainFrame)
+bgGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(13, 20, 48)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(5,  8,  20)),
 })
-BgGrad.Rotation = 160
-BgGrad.Parent = MainFrame
+bgGrad.Rotation = 150
 
--- Top accent bar
-local TopBar = Instance.new("Frame")
-TopBar.Size = UDim2.new(1, 0, 0, 3)
-TopBar.Position = UDim2.new(0, 0, 0, 0)
-TopBar.BackgroundColor3 = Color3.fromRGB(212, 170, 60)
-TopBar.BorderSizePixel = 0
-TopBar.ZIndex = 11
-TopBar.Parent = MainFrame
+-- Barra superior dourada
+local topBar = Instance.new("Frame", MainFrame)
+topBar.Size              = UDim2.new(1, 0, 0, 4)
+topBar.BackgroundColor3  = Color3.fromRGB(212, 170, 40)
+topBar.BorderSizePixel   = 0
+topBar.ZIndex            = 11
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 16)
 
-local TopBarCorner = Instance.new("UICorner")
-TopBarCorner.CornerRadius = UDim.new(0, 18)
-TopBarCorner.Parent = TopBar
+-- ── LOGO NO TOPO DA UI (86px) ──────────────────────────
+local logoHolder = Instance.new("Frame", MainFrame)
+logoHolder.Size              = UDim2.new(0, 86, 0, 86)
+logoHolder.Position          = UDim2.new(0.5, -43, 0, 18)
+logoHolder.BackgroundColor3  = Color3.fromRGB(8, 12, 30)
+logoHolder.BorderSizePixel   = 0
+logoHolder.ZIndex            = 12
+logoHolder.ClipsDescendants  = true
+Instance.new("UICorner", logoHolder).CornerRadius = UDim.new(1, 0)
 
--- ── HEADER LOGO DISPLAY ──
-local HeaderLogo = Instance.new("Frame")
-HeaderLogo.Size = UDim2.new(0, 72, 0, 72)
-HeaderLogo.Position = UDim2.new(0.5, -36, 0, 22)
-HeaderLogo.BackgroundColor3 = Color3.fromRGB(10, 15, 35)
-HeaderLogo.BorderSizePixel = 0
-HeaderLogo.ZIndex = 12
-HeaderLogo.Parent = MainFrame
+local holderStroke = Instance.new("UIStroke", logoHolder)
+holderStroke.Color     = Color3.fromRGB(212, 170, 40)
+holderStroke.Thickness = 2.5
 
-local HLCorner = Instance.new("UICorner")
-HLCorner.CornerRadius = UDim.new(1, 0)
-HLCorner.Parent = HeaderLogo
+BuildLogo(logoHolder, 80)
 
-local HLStroke = Instance.new("UIStroke")
-HLStroke.Color = Color3.fromRGB(212, 170, 60)
-HLStroke.Thickness = 2.5
-HLStroke.Parent = HeaderLogo
+-- ── TÍTULO ─────────────────────────────────────────────
+local title = Instance.new("TextLabel", MainFrame)
+title.Size               = UDim2.new(1, 0, 0, 30)
+title.Position           = UDim2.new(0, 0, 0, 114)
+title.BackgroundTransparency = 1
+title.Text               = "QuincyHub"
+title.TextColor3         = Color3.fromRGB(220, 178, 55)
+title.TextSize           = 25
+title.Font               = Enum.Font.GothamBold
+title.TextXAlignment     = Enum.TextXAlignment.Center
+title.ZIndex             = 12
 
-local HLGrad = Instance.new("UIGradient")
-HLGrad.Color = ColorSequence.new({
+local titleStroke = Instance.new("UIStroke", title)
+titleStroke.Color     = Color3.fromRGB(100, 70, 0)
+titleStroke.Thickness = 1
+
+-- ── SUBTÍTULO ──────────────────────────────────────────
+local sub = Instance.new("TextLabel", MainFrame)
+sub.Size               = UDim2.new(1, 0, 0, 18)
+sub.Position           = UDim2.new(0, 0, 0, 146)
+sub.BackgroundTransparency = 1
+sub.Text               = "v1.0  ·  Delta Mobile"
+sub.TextColor3         = Color3.fromRGB(140, 110, 35)
+sub.TextSize           = 12
+sub.Font               = Enum.Font.Gotham
+sub.TextXAlignment     = Enum.TextXAlignment.Center
+sub.ZIndex             = 12
+
+-- ── DIVISOR ────────────────────────────────────────────
+local div = Instance.new("Frame", MainFrame)
+div.Size              = UDim2.new(0.8, 0, 0, 1)
+div.Position          = UDim2.new(0.1, 0, 0, 176)
+div.BackgroundColor3  = Color3.fromRGB(212, 170, 40)
+div.BackgroundTransparency = 0.55
+div.BorderSizePixel   = 0
+div.ZIndex            = 12
+
+-- ── LABEL SEÇÃO ────────────────────────────────────────
+local secLabel = Instance.new("TextLabel", MainFrame)
+secLabel.Size               = UDim2.new(1, -32, 0, 18)
+secLabel.Position           = UDim2.new(0, 16, 0, 190)
+secLabel.BackgroundTransparency = 1
+secLabel.Text               = "✦  MOVIMENTO"
+secLabel.TextColor3         = Color3.fromRGB(170, 135, 45)
+secLabel.TextSize           = 11
+secLabel.Font               = Enum.Font.GothamBold
+secLabel.TextXAlignment     = Enum.TextXAlignment.Left
+secLabel.ZIndex             = 12
+
+-- ── CARD DO FLY ────────────────────────────────────────
+local flyCard = Instance.new("Frame", MainFrame)
+flyCard.Size              = UDim2.new(1, -32, 0, 108)
+flyCard.Position          = UDim2.new(0, 16, 0, 215)
+flyCard.BackgroundColor3  = Color3.fromRGB(13, 19, 44)
+flyCard.BorderSizePixel   = 0
+flyCard.ZIndex            = 12
+Instance.new("UICorner", flyCard).CornerRadius = UDim.new(0, 12)
+
+local cardStroke = Instance.new("UIStroke", flyCard)
+cardStroke.Color       = Color3.fromRGB(212, 170, 40)
+cardStroke.Thickness   = 1
+cardStroke.Transparency = 0.5
+
+-- Ícone 🕊
+local flyIcon = Instance.new("TextLabel", flyCard)
+flyIcon.Size               = UDim2.new(0, 40, 0, 40)
+flyIcon.Position           = UDim2.new(0, 10, 0.5, -20)
+flyIcon.BackgroundTransparency = 1
+flyIcon.Text               = "🕊"
+flyIcon.TextSize           = 28
+flyIcon.Font               = Enum.Font.GothamBold
+flyIcon.TextColor3         = Color3.fromRGB(210, 165, 40)
+flyIcon.ZIndex             = 13
+
+local flyCardTitle = Instance.new("TextLabel", flyCard)
+flyCardTitle.Size               = UDim2.new(0, 120, 0, 22)
+flyCardTitle.Position           = UDim2.new(0, 58, 0, 18)
+flyCardTitle.BackgroundTransparency = 1
+flyCardTitle.Text               = "Fly Mode"
+flyCardTitle.TextColor3         = Color3.fromRGB(230, 190, 70)
+flyCardTitle.TextSize           = 15
+flyCardTitle.Font               = Enum.Font.GothamBold
+flyCardTitle.TextXAlignment     = Enum.TextXAlignment.Left
+flyCardTitle.ZIndex             = 13
+
+local flyCardDesc = Instance.new("TextLabel", flyCard)
+flyCardDesc.Size               = UDim2.new(0, 150, 0, 16)
+flyCardDesc.Position           = UDim2.new(0, 58, 0, 44)
+flyCardDesc.BackgroundTransparency = 1
+flyCardDesc.Text               = "Voa livremente pelo mapa"
+flyCardDesc.TextColor3         = Color3.fromRGB(110, 90, 40)
+flyCardDesc.TextSize           = 11
+flyCardDesc.Font               = Enum.Font.Gotham
+flyCardDesc.TextXAlignment     = Enum.TextXAlignment.Left
+flyCardDesc.ZIndex             = 13
+
+-- ══════════════════════════════════════════════════════
+--  BOTÃO FLY  ← botão real, centralizado no card
+-- ══════════════════════════════════════════════════════
+local FlyButton = Instance.new("TextButton", flyCard)
+FlyButton.Size              = UDim2.new(0, 82, 0, 34)
+FlyButton.Position          = UDim2.new(1, -96, 0.5, -17)
+FlyButton.BackgroundColor3  = Color3.fromRGB(212, 170, 40)
+FlyButton.BorderSizePixel   = 0
+FlyButton.Text              = "FLY"
+FlyButton.TextColor3        = Color3.fromRGB(8, 12, 30)
+FlyButton.TextSize          = 15
+FlyButton.Font              = Enum.Font.GothamBold
+FlyButton.ZIndex            = 14
+FlyButton.AutoButtonColor   = false
+Instance.new("UICorner", FlyButton).CornerRadius = UDim.new(0, 10)
+
+local flyBtnGrad = Instance.new("UIGradient", FlyButton)
+flyBtnGrad.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 215, 80)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 130, 20)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(212, 170, 60)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 130, 20)),
 })
-HLGrad.Rotation = 135
-HLGrad.Parent = HeaderLogo
+flyBtnGrad.Rotation = 90
 
--- Petals on header logo
-for i = 0, 7 do
-    local petal = Instance.new("Frame")
-    petal.Size = UDim2.new(0, 20, 0, 32)
-    petal.Position = UDim2.new(0.5, -10, 0.5, -26)
-    petal.BackgroundColor3 = Color3.fromRGB(8, 12, 28)
-    petal.BorderSizePixel = 0
-    petal.Rotation = i * 45
-    petal.ZIndex = 13
-    petal.Parent = HeaderLogo
+-- ── RODAPÉ ─────────────────────────────────────────────
+local footer = Instance.new("TextLabel", MainFrame)
+footer.Size               = UDim2.new(1, 0, 0, 18)
+footer.Position           = UDim2.new(0, 0, 1, -24)
+footer.BackgroundTransparency = 1
+footer.Text               = "QuincyHub  ·  Made with 🌙"
+footer.TextColor3         = Color3.fromRGB(70, 58, 25)
+footer.TextSize           = 11
+footer.Font               = Enum.Font.Gotham
+footer.TextXAlignment     = Enum.TextXAlignment.Center
+footer.ZIndex             = 12
 
-    local pc = Instance.new("UICorner")
-    pc.CornerRadius = UDim.new(0.5, 0)
-    pc.Parent = petal
+-- ══════════════════════════════════════════════════════
+--  LÓGICA DE VOO
+-- ══════════════════════════════════════════════════════
+local function GetChar()
+    return LocalPlayer.Character
 end
 
--- ── TITLE ──
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, 0, 0, 32)
-TitleLabel.Position = UDim2.new(0, 0, 0, 106)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "QuincyHub"
-TitleLabel.TextColor3 = Color3.fromRGB(212, 170, 60)
-TitleLabel.TextSize = 26
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Center
-TitleLabel.ZIndex = 12
-TitleLabel.Parent = MainFrame
-
--- Golden gradient on title via UIGradient (text color override)
-local TitleStroke = Instance.new("UIStroke")
-TitleStroke.Color = Color3.fromRGB(120, 80, 0)
-TitleStroke.Thickness = 1
-TitleStroke.Parent = TitleLabel
-
--- ── SUBTITLE / VERSION ──
-local SubLabel = Instance.new("TextLabel")
-SubLabel.Size = UDim2.new(1, 0, 0, 20)
-SubLabel.Position = UDim2.new(0, 0, 0, 138)
-SubLabel.BackgroundTransparency = 1
-SubLabel.Text = "v1.0  •  Delta Mobile"
-SubLabel.TextColor3 = Color3.fromRGB(150, 120, 40)
-SubLabel.TextSize = 13
-SubLabel.Font = Enum.Font.Gotham
-SubLabel.TextXAlignment = Enum.TextXAlignment.Center
-SubLabel.ZIndex = 12
-SubLabel.Parent = MainFrame
-
--- ── DIVIDER ──
-local Divider = Instance.new("Frame")
-Divider.Size = UDim2.new(0.8, 0, 0, 1)
-Divider.Position = UDim2.new(0.1, 0, 0, 172)
-Divider.BackgroundColor3 = Color3.fromRGB(212, 170, 60)
-Divider.BackgroundTransparency = 0.6
-Divider.BorderSizePixel = 0
-Divider.ZIndex = 12
-Divider.Parent = MainFrame
-
--- ── FLY SECTION LABEL ──
-local SectionLabel = Instance.new("TextLabel")
-SectionLabel.Size = UDim2.new(1, -40, 0, 20)
-SectionLabel.Position = UDim2.new(0, 20, 0, 190)
-SectionLabel.BackgroundTransparency = 1
-SectionLabel.Text = "✦  LOCOMOTION"
-SectionLabel.TextColor3 = Color3.fromRGB(180, 145, 55)
-SectionLabel.TextSize = 11
-SectionLabel.Font = Enum.Font.GothamBold
-SectionLabel.TextXAlignment = Enum.TextXAlignment.Left
-SectionLabel.LetterSpacingOffset = 3
-SectionLabel.ZIndex = 12
-SectionLabel.Parent = MainFrame
-
--- ── FLY CARD ──
-local FlyCard = Instance.new("Frame")
-FlyCard.Size = UDim2.new(1, -40, 0, 100)
-FlyCard.Position = UDim2.new(0, 20, 0, 218)
-FlyCard.BackgroundColor3 = Color3.fromRGB(14, 20, 45)
-FlyCard.BorderSizePixel = 0
-FlyCard.ZIndex = 12
-FlyCard.Parent = MainFrame
-
-local FlyCardCorner = Instance.new("UICorner")
-FlyCardCorner.CornerRadius = UDim.new(0, 12)
-FlyCardCorner.Parent = FlyCard
-
-local FlyCardStroke = Instance.new("UIStroke")
-FlyCardStroke.Color = Color3.fromRGB(212, 170, 60)
-FlyCardStroke.Thickness = 1
-FlyCardStroke.Transparency = 0.5
-FlyCardStroke.Parent = FlyCard
-
--- Fly card icon
-local FlyIcon = Instance.new("TextLabel")
-FlyIcon.Size = UDim2.new(0, 36, 0, 36)
-FlyIcon.Position = UDim2.new(0, 14, 0.5, -18)
-FlyIcon.BackgroundTransparency = 1
-FlyIcon.Text = "🕊"
-FlyIcon.TextSize = 26
-FlyIcon.Font = Enum.Font.GothamBold
-FlyIcon.TextColor3 = Color3.fromRGB(212, 170, 60)
-FlyIcon.ZIndex = 13
-FlyIcon.Parent = FlyCard
-
-local FlyCardTitle = Instance.new("TextLabel")
-FlyCardTitle.Size = UDim2.new(0, 120, 0, 22)
-FlyCardTitle.Position = UDim2.new(0, 58, 0, 18)
-FlyCardTitle.BackgroundTransparency = 1
-FlyCardTitle.Text = "Fly Mode"
-FlyCardTitle.TextColor3 = Color3.fromRGB(230, 195, 80)
-FlyCardTitle.TextSize = 16
-FlyCardTitle.Font = Enum.Font.GothamBold
-FlyCardTitle.TextXAlignment = Enum.TextXAlignment.Left
-FlyCardTitle.ZIndex = 13
-FlyCardTitle.Parent = FlyCard
-
-local FlyCardDesc = Instance.new("TextLabel")
-FlyCardDesc.Size = UDim2.new(0, 140, 0, 18)
-FlyCardDesc.Position = UDim2.new(0, 58, 0, 42)
-FlyCardDesc.BackgroundTransparency = 1
-FlyCardDesc.Text = "Voa livremente pelo mapa"
-FlyCardDesc.TextColor3 = Color3.fromRGB(120, 100, 50)
-FlyCardDesc.TextSize = 11
-FlyCardDesc.Font = Enum.Font.Gotham
-FlyCardDesc.TextXAlignment = Enum.TextXAlignment.Left
-FlyCardDesc.ZIndex = 13
-FlyCardDesc.Parent = FlyCard
-
--- ── FLY BUTTON ──
-local FlyButton = Instance.new("TextButton")
-FlyButton.Size = UDim2.new(0, 80, 0, 36)
-FlyButton.Position = UDim2.new(1, -94, 0.5, -18)
-FlyButton.BackgroundColor3 = Color3.fromRGB(212, 170, 60)
-FlyButton.BorderSizePixel = 0
-FlyButton.Text = "FLY"
-FlyButton.TextColor3 = Color3.fromRGB(8, 12, 28)
-FlyButton.TextSize = 15
-FlyButton.Font = Enum.Font.GothamBold
-FlyButton.ZIndex = 14
-FlyButton.Parent = FlyCard
-
-local FlyBtnCorner = Instance.new("UICorner")
-FlyBtnCorner.CornerRadius = UDim.new(0, 10)
-FlyBtnCorner.Parent = FlyButton
-
-local FlyBtnGrad = Instance.new("UIGradient")
-FlyBtnGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 220, 90)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 135, 25)),
-})
-FlyBtnGrad.Rotation = 90
-FlyBtnGrad.Parent = FlyButton
-
--- ── STATUS INDICATOR ──
-local StatusDot = Instance.new("Frame")
-StatusDot.Size = UDim2.new(0, 10, 0, 10)
-StatusDot.Position = UDim2.new(0, 20, 1, -28)
-StatusDot.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-StatusDot.BorderSizePixel = 0
-StatusDot.ZIndex = 12
-StatusDot.Parent = MainFrame
-
-local SDCorner = Instance.new("UICorner")
-SDCorner.CornerRadius = UDim.new(1, 0)
-SDCorner.Parent = StatusDot
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(0, 200, 0, 18)
-StatusLabel.Position = UDim2.new(0, 36, 1, -31)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Status: Idle"
-StatusLabel.TextColor3 = Color3.fromRGB(120, 100, 60)
-StatusLabel.TextSize = 12
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.ZIndex = 12
-StatusLabel.Parent = MainFrame
-
--- ── FOOTER ──
-local Footer = Instance.new("TextLabel")
-Footer.Size = UDim2.new(1, 0, 0, 18)
-Footer.Position = UDim2.new(0, 0, 1, -22)
-Footer.BackgroundTransparency = 1
-Footer.Text = "QuincyHub  •  Made with 🌙"
-Footer.TextColor3 = Color3.fromRGB(80, 65, 30)
-Footer.TextSize = 11
-Footer.Font = Enum.Font.Gotham
-Footer.TextXAlignment = Enum.TextXAlignment.Center
-Footer.ZIndex = 12
-Footer.Parent = MainFrame
-
--- ══════════════════════════════════════
---  FLY LOGIC
--- ══════════════════════════════════════
 local function StartFly()
-    isFlying = true
-    Humanoid.PlatformStand = true
+    local char = GetChar()
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return end
 
-    local BodyVelocity = Instance.new("BodyVelocity")
-    BodyVelocity.Name = "QuincyFlyVelocity"
-    BodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    BodyVelocity.Parent = HumanoidRootPart
+    hum.PlatformStand = true
 
-    local BodyGyro = Instance.new("BodyGyro")
-    BodyGyro.Name = "QuincyFlyGyro"
-    BodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    BodyGyro.P = 1e4
-    BodyGyro.Parent = HumanoidRootPart
+    local bv = Instance.new("BodyVelocity")
+    bv.Name      = "QH_BV"
+    bv.Velocity  = Vector3.zero
+    bv.MaxForce  = Vector3.new(1e5, 1e5, 1e5)
+    bv.Parent    = hrp
 
-    local Camera = workspace.CurrentCamera
+    local bg = Instance.new("BodyGyro")
+    bg.Name      = "QH_BG"
+    bg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    bg.P         = 9000
+    bg.Parent    = hrp
 
-    flyConnection = RunService.Heartbeat:Connect(function()
-        if not isFlying then return end
+    local cam = workspace.CurrentCamera
 
-        local cf = Camera.CFrame
-        local moveDir = Vector3.new(0, 0, 0)
+    flyConn = RunService.Heartbeat:Connect(function()
+        local c = GetChar()
+        if not c then return end
+        local r = c:FindFirstChild("HumanoidRootPart")
+        if not r then return end
+        local bvr = r:FindFirstChild("QH_BV")
+        local bgr = r:FindFirstChild("QH_BG")
+        if not bvr or not bgr then return end
 
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveDir = moveDir + cf.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveDir = moveDir - cf.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveDir = moveDir - cf.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveDir = moveDir + cf.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            moveDir = moveDir + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-            moveDir = moveDir - Vector3.new(0, 1, 0)
-        end
+        local cf  = cam.CFrame
+        local dir = Vector3.zero
 
-        -- Touch / Mobile support
-        local thumbstick = LocalPlayer.PlayerGui:FindFirstChild("TouchGui")
-        if thumbstick then
-            local MoveVector = LocalPlayer.Move
-            if MoveVector then
-                moveDir = moveDir + cf.LookVector * MoveVector.Z
-                moveDir = moveDir + cf.RightVector * MoveVector.X
+        -- Teclado (PC)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += cf.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= cf.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= cf.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += cf.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.yAxis end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.yAxis end
+
+        -- Mobile: usa MoveVector do Humanoid
+        local h2 = c:FindFirstChild("Humanoid")
+        if h2 then
+            local mv = h2.MoveDirection
+            if mv.Magnitude > 0.1 then
+                dir += cf.LookVector * mv.Z * -1
+                dir += cf.RightVector * mv.X
             end
         end
 
-        if moveDir.Magnitude > 0 then
-            moveDir = moveDir.Unit
-        end
-
-        BodyVelocity.Velocity = moveDir * flySpeed
-        BodyGyro.CFrame = cf
+        if dir.Magnitude > 0 then dir = dir.Unit end
+        bvr.Velocity = dir * flySpeed
+        bgr.CFrame   = cf
     end)
 end
 
 local function StopFly()
-    isFlying = false
-    Humanoid.PlatformStand = false
+    if flyConn then flyConn:Disconnect(); flyConn = nil end
 
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
+    local char = GetChar()
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.PlatformStand = false end
+        if hrp then
+            local bv = hrp:FindFirstChild("QH_BV")
+            local bg = hrp:FindFirstChild("QH_BG")
+            if bv then bv:Destroy() end
+            if bg then bg:Destroy() end
+        end
     end
-
-    local bv = HumanoidRootPart:FindFirstChild("QuincyFlyVelocity")
-    local bg = HumanoidRootPart:FindFirstChild("QuincyFlyGyro")
-
-    if bv then bv:Destroy() end
-    if bg then bg:Destroy() end
 end
 
--- ══════════════════════════════════════
---  FLY BUTTON LOGIC
--- ══════════════════════════════════════
-FlyButton.MouseButton1Click:Connect(function()
+-- ══════════════════════════════════════════════════════
+--  BOTÃO FLY – CLIQUE
+-- ══════════════════════════════════════════════════════
+FlyButton.Activated:Connect(function()
     isFlying = not isFlying
 
     if isFlying then
-        -- Activate: green button
-        FlyButton.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-        FlyBtnGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(74, 222, 128)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 163, 74)),
+        -- ── ATIVO: fica verde ──
+        flyBtnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 230, 130)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 160, 70)),
         })
         FlyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-        FlyButton.Text = "FLY ✓"
+        FlyButton.Text       = "FLY ✓"
 
-        StatusDot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-        StatusLabel.Text = "Status: Voando 🕊"
-        StatusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
-
-        TweenService:Create(FlyCard, TweenInfo.new(0.3), {
-            BackgroundColor3 = Color3.fromRGB(10, 30, 20)
+        TweenService:Create(flyCard, TweenInfo.new(0.25), {
+            BackgroundColor3 = Color3.fromRGB(8, 28, 18)
         }):Play()
 
         StartFly()
     else
-        -- Deactivate: gold button
-        FlyButton.BackgroundColor3 = Color3.fromRGB(212, 170, 60)
-        FlyBtnGrad.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 220, 90)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 135, 25)),
+        -- ── INATIVO: volta dourado ──
+        flyBtnGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 215, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 130, 20)),
         })
-        FlyButton.TextColor3 = Color3.fromRGB(8, 12, 28)
-        FlyButton.Text = "FLY"
+        FlyButton.TextColor3 = Color3.fromRGB(8, 12, 30)
+        FlyButton.Text       = "FLY"
 
-        StatusDot.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-        StatusLabel.Text = "Status: Idle"
-        StatusLabel.TextColor3 = Color3.fromRGB(120, 100, 60)
-
-        TweenService:Create(FlyCard, TweenInfo.new(0.3), {
-            BackgroundColor3 = Color3.fromRGB(14, 20, 45)
+        TweenService:Create(flyCard, TweenInfo.new(0.25), {
+            BackgroundColor3 = Color3.fromRGB(13, 19, 44)
         }):Play()
 
         StopFly()
     end
 end)
 
--- ══════════════════════════════════════
---  LOGO BUTTON: TOGGLE UI
--- ══════════════════════════════════════
-LogoButton.MouseButton1Click:Connect(function()
-    uiVisible = not uiVisible
-
-    if uiVisible then
-        MainFrame.Visible = true
-        TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back), {
-            Size = UDim2.new(0, 320, 0, 420)
-        }):Play()
-    else
-        TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
-            Size = UDim2.new(0, 0, 0, 0)
-        }):Play()
-
-        task.delay(0.2, function()
-            MainFrame.Visible = false
-            MainFrame.Size = UDim2.new(0, 320, 0, 420)
-        end)
-    end
-end)
-
--- ══════════════════════════════════════
---  LOGO BUTTON: DRAGGABLE
--- ══════════════════════════════════════
-local dragging = false
-local dragInput, dragStart, startPos
-
-LogoButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = LogoButton.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-LogoButton.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        LogoButton.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
--- ══════════════════════════════════════
---  RESPAWN: clean up fly
--- ══════════════════════════════════════
-LocalPlayer.CharacterAdded:Connect(function(newChar)
-    Character = newChar
-    HumanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
-    Humanoid = newChar:WaitForChild("Humanoid")
-
+-- ══════════════════════════════════════════════════════
+--  RESET AO RESPAWN
+-- ══════════════════════════════════════════════════════
+LocalPlayer.CharacterAdded:Connect(function()
     isFlying = false
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-
-    -- Reset button state
-    FlyButton.BackgroundColor3 = Color3.fromRGB(212, 170, 60)
-    FlyButton.TextColor3 = Color3.fromRGB(8, 12, 28)
-    FlyButton.Text = "FLY"
-    StatusDot.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    StatusLabel.Text = "Status: Idle"
-    StatusLabel.TextColor3 = Color3.fromRGB(120, 100, 60)
-    FlyCard.BackgroundColor3 = Color3.fromRGB(14, 20, 45)
+    if flyConn then flyConn:Disconnect(); flyConn = nil end
+    FlyButton.Text       = "FLY"
+    FlyButton.TextColor3 = Color3.fromRGB(8, 12, 30)
+    flyBtnGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 215, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 130, 20)),
+    })
+    flyCard.BackgroundColor3 = Color3.fromRGB(13, 19, 44)
 end)
 
--- ══════════════════════════════════════
---  STARTUP ANIMATION
--- ══════════════════════════════════════
-MainFrame.Size = UDim2.new(0, 0, 0, 0)
-MainFrame.Visible = true
-
-TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Size = UDim2.new(0, 320, 0, 420)
-}):Play()
-
--- Logo button pulse animation
-local function PulseLogo()
-    TweenService:Create(LogoButton, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-        Size = UDim2.new(0, 68, 0, 68)
-    }):Play()
-end
-
-PulseLogo()
-
-print("✦ QuincyHub carregado com sucesso! ✦")
+print("✦ QuincyHub carregado! Clique no botão logo para abrir. ✦")
